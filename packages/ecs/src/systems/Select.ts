@@ -2314,6 +2314,8 @@ export class Select extends System {
           }
           return;
         }
+        // Vector-network pen: DrawVectorNetwork handles input; keep current selection.
+        return;
       }
 
       const { layersCropping, layersLassoing } = api.getAppState();
@@ -2762,10 +2764,9 @@ export class Select extends System {
             const selected = selecteds.length === 1 ? selecteds[0] : undefined;
             const vectorNetworkEditing =
               selected?.has(VectorNetwork) &&
-              (pen === Pen.VECTOR_NETWORK ||
-                (pen === Pen.SELECT &&
-                  selected.has(Editable) &&
-                  selected.read(Editable).isEditing));
+              (pen === Pen.SELECT &&
+                selected.has(Editable) &&
+                selected.read(Editable).isEditing);
             if (vectorNetworkEditing) {
               const transformable = camera.write(Transformable);
               const editMode = api.getAppState().vectorNetworkEditMode;

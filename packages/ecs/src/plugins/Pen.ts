@@ -16,6 +16,7 @@ import {
   Last,
   ComputeVisibility,
   DrawPencil,
+  DrawVectorNetwork,
   DrawBrush,
   DrawPoint,
   RenderBindings,
@@ -59,6 +60,7 @@ export const PenPlugin: Plugin = () => {
   system((s) => s.after(DrawRect).before(Last))(DrawBrush);
   system((s) => s.after(DrawBrush).before(Last))(DrawPoint);
   system((s) => s.after(DrawPoint).before(Last))(DrawPencil);
+  system((s) => s.after(DrawPencil).before(Last))(DrawVectorNetwork);
   system((s) => s.afterWritersOf(Selected).before(Last))(
     RenderTransformer,
   );

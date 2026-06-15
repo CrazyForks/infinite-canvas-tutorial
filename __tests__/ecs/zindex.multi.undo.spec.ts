@@ -35,6 +35,7 @@ import {
   RectSerializedNode,
   Flex,
   Opacity,
+  GlobalTransform,
 } from '../../packages/ecs/src';
 import { NodeJSAdapter, sleep } from '../utils';
 
@@ -82,6 +83,7 @@ describe('ZIndex multi-change undo/redo', () => {
           UI,
           Flex,
           Opacity,
+          GlobalTransform,
         ).write,
       );
 

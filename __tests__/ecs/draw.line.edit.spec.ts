@@ -35,6 +35,7 @@ import {
   Binding,
   Editable,
   Opacity,
+  GlobalTransform,
 } from '../../packages/ecs/src';
 import { NodeJSAdapter, sleep, createMouseEvent } from '../utils';
 
@@ -80,6 +81,7 @@ describe('Draw line', () => {
             ZIndex,
             Editable,
             Opacity,
+            GlobalTransform,
           ).write,
       );
 

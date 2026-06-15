@@ -131,6 +131,7 @@ import '@spectrum-web-components/icons-workflow/icons/sp-icon-color-palette.js';
 import '@spectrum-web-components/icons-workflow/icons/sp-icon-asterisk.js';
 import '@spectrum-web-components/icons-workflow/icons/sp-icon-graph-profit-curve.js';
 import '@spectrum-web-components/icons-workflow/icons/sp-icon-move.js';
+import '@spectrum-web-components/icons-workflow/icons/sp-icon-draw.js';
 import './icons/sp-icon-pentagon';
 import './icons/sp-icon-triangle';
 

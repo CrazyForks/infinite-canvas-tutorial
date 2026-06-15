@@ -22,7 +22,7 @@ onMounted(async () => {
 
     api.setAppState({
       penbarSelected: Pen.SELECT,
-      penbarAll: [Pen.SELECT],
+      penbarAll: [Pen.SELECT, Pen.VECTOR_NETWORK],
       vectorNetworkEditMode: VectorNetworkEditMode.MOVE,
       cameraX: -120,
       cameraY: -80,

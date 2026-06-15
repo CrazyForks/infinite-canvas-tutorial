@@ -114,6 +114,7 @@ canvas.addEventListener(Event.READY, async (e) => {
       Pen.BRUSH,
       Pen.ERASER,
       Pen.LASER_POINTER,
+      Pen.VECTOR_NETWORK,
     ],
     penbarLasso: {
       ...api.getAppState().penbarLasso,

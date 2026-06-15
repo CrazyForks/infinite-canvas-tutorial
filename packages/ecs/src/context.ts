@@ -114,6 +114,7 @@ export interface AppState {
       freehand: boolean;
     }
   >;
+  penbarVectorNetwork: Partial<StrokeAttributes & FillAttributes>;
   penbarBrush: Partial<
     BrushAttributes &
     StrokeAttributes & {
@@ -298,8 +299,8 @@ export const getDefaultAppState: () => AppState = () => {
       Pen.TEXT,
       Pen.PENCIL,
       Pen.BRUSH,
+      Pen.VECTOR_NETWORK,
       Pen.ERASER,
-      // Pen.VECTOR_NETWORK,
       Pen.COMMENT,
       Pen.LASER_POINTER,
     ],
@@ -427,6 +428,15 @@ export const getDefaultAppState: () => AppState = () => {
         { type: 'solid', value: TRANSFORMER_ANCHOR_STROKE_COLOR, opacity: 1 },
       ],
       strokeWidth: 1,
+      strokeLinecap: 'round',
+      strokeLinejoin: 'round',
+    },
+    penbarVectorNetwork: {
+      fills: [{ type: 'solid', value: 'none', opacity: 1 }],
+      strokes: [
+        { type: 'solid', value: TRANSFORMER_ANCHOR_STROKE_COLOR, opacity: 1 },
+      ],
+      strokeWidth: 2,
       strokeLinecap: 'round',
       strokeLinejoin: 'round',
     },

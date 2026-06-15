@@ -205,7 +205,30 @@ export class RenderTransformer extends System {
     }
 
     if (pen === Pen.VECTOR_NETWORK) {
-      this.hideVectorNetworkEditAnchors(transformable);
+      if (!transformable.polylineMask) {
+        this.createPolylineMask(camera, transformable);
+      }
+      if (!transformable.mask) {
+        this.createRectMask(camera, transformable);
+      }
+      const { selecteds, mask, polylineMask } = camera.read(Transformable);
+      if (
+        selecteds.length === 1 &&
+        selecteds[0].has(VectorNetwork)
+      ) {
+        mask.write(Visibility).value = 'hidden';
+        this.hideLineMaskAndEndpointAnchors(transformable);
+        polylineMask.write(Visibility).value = 'hidden';
+        this.updateVectorNetworkControlPoints(
+          camera,
+          selecteds[0],
+          transformable,
+          api.getAppState().vectorNetworkEditMode,
+          true,
+        );
+      } else {
+        this.hideVectorNetworkEditAnchors(transformable);
+      }
       return;
     } else {
       if (!transformable.lineMask) {
@@ -284,15 +307,26 @@ export class RenderTransformer extends System {
     selected: Entity,
     transformable: Transformable,
     editMode: VectorNetworkEditMode,
+    penDrawing = false,
   ) {
     if (
       !isEntityAlive(selected) ||
       !selected.has(VectorNetwork) ||
-      !selected.has(Editable) ||
-      !selected.read(Editable).isEditing
+      (!penDrawing &&
+        (!selected.has(Editable) || !selected.read(Editable).isEditing))
     ) {
       this.hideVectorNetworkEditAnchors(transformable);
       return;
+    }
+
+    if (!selected.has(GlobalTransform)) {
+      if (penDrawing) {
+        updateGlobalTransform(selected);
+      }
+      if (!selected.has(GlobalTransform)) {
+        this.hideVectorNetworkEditAnchors(transformable);
+        return;
+      }
     }
 
     const { vertices, segments } = selected.read(VectorNetwork);
@@ -305,8 +339,9 @@ export class RenderTransformer extends System {
     const selectedControlPointIndex =
       transformable.selectedControlPointIndex ?? -1;
     const showSegmentMidpoints =
-      editMode === VectorNetworkEditMode.MOVE ||
-      editMode === VectorNetworkEditMode.CUT;
+      !penDrawing &&
+      (editMode === VectorNetworkEditMode.MOVE ||
+        editMode === VectorNetworkEditMode.CUT);
 
     transformable.controlPoints.forEach((controlPoint, i) => {
       const vertex = vertices[i];
@@ -822,7 +857,11 @@ export class RenderTransformer extends System {
             tf.polylineMask.write(Visibility).value = 'hidden';
           }
         }
-        if (!isSelectVertexEditingCamera(camera, pen)) {
+        // Pen draw mode shows VN anchors via createOrUpdate; don't strip them here.
+        if (
+          pen !== Pen.VECTOR_NETWORK &&
+          !isSelectVertexEditingCamera(camera, pen)
+        ) {
           this.hideVectorNetworkEditAnchors(camera.read(Transformable));
         }
       }
@@ -900,6 +939,21 @@ export class RenderTransformer extends System {
       const sceneRoot = getSceneRoot(entity);
       if (isEntityAlive(sceneRoot) && sceneRoot.has(Camera)) {
         camerasToUpdate.add(sceneRoot);
+      }
+    });
+
+    // Keep pen-draw anchors in sync every frame (PropagateTransforms, pointer, etc.).
+    this.cameras.current.forEach((camera) => {
+      if (!camera.has(Camera)) {
+        return;
+      }
+      const { canvas } = camera.read(Camera);
+      if (!canvas?.has(Canvas)) {
+        return;
+      }
+      const { api } = canvas.read(Canvas);
+      if (api.getAppState().penbarSelected === Pen.VECTOR_NETWORK) {
+        camerasToUpdate.add(camera);
       }
     });
 

@@ -1985,6 +1985,9 @@ export class API {
         if (!entity.has(Children)) {
           cameraEntityCommands.appendChild(this.commands.entity(entity));
         }
+        // PropagateTransforms already ran this frame; new nodes need a world matrix
+        // before the render pass (SmoothPolyline, transformer anchors, etc.).
+        updateGlobalTransform(entity);
       });
 
       this.commands.execute();
@@ -2054,6 +2057,9 @@ export class API {
         if (!entity.has(Children)) {
           cameraEntityCommands.appendChild(this.commands.entity(entity));
         }
+        // PropagateTransforms already ran this frame; new nodes need a world matrix
+        // before the render pass (SmoothPolyline, transformer anchors, etc.).
+        updateGlobalTransform(entity);
       });
 
       this.commands.execute();
