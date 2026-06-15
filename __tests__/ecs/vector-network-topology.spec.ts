@@ -2,6 +2,7 @@ import {
   pathToVectorNetwork,
   splitSegmentAt,
   deleteVertex,
+  breakVertex,
   findRegionLoopAtPoint,
   contourFromSegmentLoop,
   type VectorNetworkData,
@@ -137,6 +138,58 @@ describe('deleteVertex', () => {
     const result = deleteVertex({ vertices, segments }, 3);
     expect(result.segments).toHaveLength(0);
     expect(result.vertices).toHaveLength(3);
+  });
+});
+
+describe('breakVertex', () => {
+  it('opens a closed loop at the cut vertex (triangle → 0-1, 1-2, 2-3)', () => {
+    const network = pathToVectorNetwork(
+      'M 0 0 L 100 0 L 50 100 Z',
+    ) as VectorNetworkData;
+    const result = breakVertex(network, 1);
+    expect(result).not.toBeNull();
+    expect(result!.vertices).toHaveLength(4);
+    expect(result!.vertices[3]).toEqual(result!.vertices[0]);
+    expect(result!.segments.map((s) => [s.start, s.end])).toEqual([
+      [0, 1],
+      [1, 2],
+      [2, 3],
+    ]);
+    expect(result!.regions).toBeUndefined();
+  });
+
+  it('opens a closed loop when the closing edge is incident to the cut vertex', () => {
+    const network = pathToVectorNetwork(
+      'M 0 0 L 100 0 L 50 100 Z',
+    ) as VectorNetworkData;
+    const result = breakVertex(network, 0);
+    expect(result).not.toBeNull();
+    expect(result!.vertices[3]).toEqual(result!.vertices[0]);
+    expect(result!.segments.map((s) => [s.start, s.end])).toEqual([
+      [0, 1],
+      [1, 2],
+      [2, 3],
+    ]);
+  });
+
+  it('duplicates a degree-2 vertex on an open path so chains can separate', () => {
+    const network = pathToVectorNetwork(
+      'M 0 0 L 50 50 L 100 0',
+    ) as VectorNetworkData;
+    const result = breakVertex(network, 1);
+    expect(result).not.toBeNull();
+    expect(result!.vertices).toHaveLength(4);
+    expect(result!.vertices[3]).toEqual(result!.vertices[1]);
+    expect(result!.segments.map((s) => [s.start, s.end])).toEqual([
+      [0, 1],
+      [3, 2],
+    ]);
+  });
+
+  it('returns null for an endpoint (degree 1)', () => {
+    const network = pathToVectorNetwork('M 0 0 L 100 0') as VectorNetworkData;
+    expect(breakVertex(network, 0)).toBeNull();
+    expect(breakVertex(network, 1)).toBeNull();
   });
 });
 

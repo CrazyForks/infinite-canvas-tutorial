@@ -16,6 +16,8 @@ import VectorNetwork from '../../components/VectorNetwork.vue';
 -   SVG Path 的局限性
 -   什么是 VectorNetwork？
 -   使用 Pen 工具修改 Path
+-   双击进入 Vector 编辑态与 Move / Bend / Cut 工具
+-   拓扑算子：分裂边、删除顶点、Cut 断开闭合环
 
 ## SVG Path 的局限性 {#limitations-of-svg-path}
 
@@ -244,7 +246,7 @@ function tessellateVectorSegment(
 
 也可以在 Konva 的 [How to modify line points with anchors?] 在线例子或者 [bezierjs] 中体验。
 
-参考 Figma 的交互，在图形上双击进入 VectorNetwork 编辑状态，详见：[Edit vector layers]。
+双击进入编辑态、Move / Bend / Cut 工具条与 midpoint 插入等交互见下文 [进入编辑态与工具条](#vector-edit-mode)。
 
 ![Vector edit mode in Figma](/figma-vectornetwork-mode.png)
 
@@ -271,6 +273,22 @@ export enum Pen {
 
 写回时会复用 `VectorNetwork.getGeometryBounds` 重算几何包围盒，并把左上角归一化到局部 `(0, 0)`（顶点整体平移 `-minX/-minY`，平移量加到 `node.x/y`），从而保持 `node.x == 几何左边` 这一 Transformer resize 所依赖的不变量。
 
+### 进入编辑态与工具条 {#vector-edit-mode}
+
+参考 Figma 的 [Edit vector layers]，双击 `vector-network` 节点进入顶点编辑态：为实体添加 `Editable.isEditing = true`，并显示底部居中的 **Move / Bend / Cut** 工具条（`VectorNetworkEditMode`，见 `context-vector-network-edit-bar.ts`）。退出编辑（工具条关闭按钮、Esc 或点击画布空白）时写回 `isEditing: false`，`RenderTransformer` 会隐藏所有编辑锚点（顶点、线段 midpoint、切线手柄）。
+
+| 模式     | 交互                                                                                               |
+| -------- | -------------------------------------------------------------------------------------------------- |
+| **Move** | 拖拽顶点；hover 线段显示 midpoint，点击插入新顶点                                                  |
+| **Bend** | 选中顶点后显示切线手柄，拖拽调整 `tangentStart` / `tangentEnd`                                     |
+| **Cut**  | 与 Move 相同可在线段 midpoint 插入顶点；**点击顶点**在 cut 点断开拓扑并自动切回 Move，便于拖拽分离 |
+
+锚点的 **hover 高亮**与**选中**分离：`Transformable.hoveredControlPointIndex` 随指针移开消失，`selectedControlPointIndex` 在点击后保持，直到点击空白或图形内部取消。
+
+### Move：线段 midpoint 插入顶点 {#insert-at-midpoint}
+
+hover 某条 segment 时在曲线中点（`t = 0.5`，cubic 边取曲线上的点）渲染 midpoint 锚点。点击后调用 `splitSegmentAt`（见 [Creation & delete](#creation--delete)）分裂该边并写回 network。相关逻辑在 `Select.insertControlPointFromMidpoint` 与 `RenderTransformer.findHoveredVectorNetworkSegmentIndex`（viewport 空间到局部曲线的距离检测）。
+
 ## Topological operators
 
 Figma 支持 [Boolean operations]，例如 union
@@ -279,7 +297,7 @@ Figma 支持 [Boolean operations]，例如 union
 
 也许可以参考 Paper.js 的实现。
 
-### Creation & delete
+### Creation & delete {#creation--delete}
 
 [Delete and Heal for Vector Networks]
 
@@ -293,7 +311,7 @@ export function splitSegmentAt(
 ): VectorNetworkData;
 ```
 
-删除顶点：移除该顶点及其关联边后，对 degree==2 的相邻顶点执行「heal」——把它的两条边合并为一条，从而保持路径连通（对齐 Figma 的 Delete and Heal）：
+删除顶点：移除该顶点及其关联边后，对 degree==2 的相邻顶点执行「heal」——把它的两条边合并为一条，从而保持路径连通（对齐 Figma 的 Delete and Heal）。编辑态下按 **Delete / Backspace** 触发：
 
 ```ts
 export function deleteVertex(
@@ -308,9 +326,28 @@ export function deleteVertex(
 
 ![Glue and unglue operator](/vgc-operator-glue-unglue.png)
 
-### Cut & uncut
+### Cut & uncut {#cut-uncut}
 
 ![Cut and uncut operator](/vgc-operator-cut-uncut.png)
+
+Cut 在 cut 顶点处**断开拓扑**（不是删掉对边）。闭合环上保留 cut 点上的两条 incident 边，复制闭合端点并改写闭合 segment，使路径在该点打开。以三角形 `0—1—2—0` 在顶点 `1` 处 Cut 为例：
+
+```plaintext
+Cut 前:  0 — 1 — 2 — 0（闭合）
+Cut 后:  0 — 1 — 2 — 3（3 与 0 同位置，开口折线）
+segments: [0,1], [1,2], [2,3]
+```
+
+开口折线上则在 cut 点**复制顶点**，把除第一条外的 incident 边改连到副本，两条链可在 Move 模式下拖开。实现见 `breakVertex`：
+
+```ts
+export function breakVertex(
+    network: VectorNetworkData,
+    vertexIndex: number,
+): VectorNetworkData | null;
+```
+
+Cut 模式点击顶点后调用 `breakVectorNetworkAtVertex`（`Select.ts`），写回 network、记录历史，并 `setAppState({ vectorNetworkEditMode: MOVE })` 以便立刻拖拽。`regions` 在断开后丢弃，需重新 click-to-fill 或由后续 region 检测重建。
 
 ## 扩展阅读 {#extended-reading}
 

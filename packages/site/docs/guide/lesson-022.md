@@ -16,6 +16,8 @@ In this lesson, you will learn about:
 -   Limitations of SVG Path
 -   What is VectorNetwork?
 -   Using the Pen tool to modify Path
+-   Double-click to enter vector edit mode and Move / Bend / Cut tools
+-   Topological operators: split segment, delete vertex, Cut to open a closed loop
 
 ## Limitations of SVG Path {#limitations-of-svg-path}
 
@@ -244,7 +246,7 @@ In VectorNetwork's edge definition, `tangentStart` and `tangentEnd` can define t
 
 You can also try the Konva example [How to modify line points with anchors?] or [bezierjs].
 
-Following Figma, double-click a shape to enter VectorNetwork edit mode; see [Edit vector layers].
+Double-click edit mode, the Move / Bend / Cut toolbar, and midpoint insertion are covered in [Entering edit mode and toolbar](#vector-edit-mode) below.
 
 ![Vector edit mode in Figma](/figma-vectornetwork-mode.png)
 
@@ -272,6 +274,22 @@ Unlike the OBB-based approach in [Lesson 21 - Transformer]:
 
 On write-back, `VectorNetwork.getGeometryBounds` recomputes the geometry bounds and normalizes the top-left to local `(0, 0)` (all vertices shift by `-minX/-minY`, with that offset added to `node.x/y`), preserving the `node.x == geometry left` invariant that Transformer resize relies on.
 
+### Entering edit mode and toolbar {#vector-edit-mode}
+
+Following Figma's [Edit vector layers], double-click a `vector-network` node to enter vertex edit mode: set `Editable.isEditing = true` on the entity and show a bottom-centered **Move / Bend / Cut** toolbar (`VectorNetworkEditMode`, see `context-vector-network-edit-bar.ts`). Exiting edit (toolbar close button, Esc, or clicking empty canvas) writes `isEditing: false`; `RenderTransformer` hides all edit anchors (vertices, segment midpoints, tangent handles).
+
+| Mode     | Interaction                                                                                                                       |
+| -------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| **Move** | Drag vertices; hover a segment to show its midpoint, click to insert a new vertex                                                 |
+| **Bend** | Show tangent handles on the selected vertex; drag to adjust `tangentStart` / `tangentEnd`                                         |
+| **Cut**  | Same midpoint insertion as Move; **click a vertex** to break topology at the cut point and auto-switch to Move for dragging apart |
+
+**Hover highlight** and **selection** are separate for anchors: `Transformable.hoveredControlPointIndex` clears when the pointer leaves; `selectedControlPointIndex` persists after a click until you click empty space or inside the shape.
+
+### Move: insert vertex at segment midpoint {#insert-at-midpoint}
+
+When hovering a segment, render a midpoint anchor at the curve midpoint (`t = 0.5`; for cubic edges, the point on the curve). A click calls `splitSegmentAt` (see [Creation & delete](#creation--delete)) to split the edge and write back the network. See `Select.insertControlPointFromMidpoint` and `RenderTransformer.findHoveredVectorNetworkSegmentIndex` (viewport-to-local curve distance).
+
 ## Topological operators
 
 Figma supports [Boolean operations], for example union.
@@ -280,7 +298,7 @@ Figma supports [Boolean operations], for example union.
 
 Paper.js may be a useful reference for implementations.
 
-### Creation & delete
+### Creation & delete {#creation--delete}
 
 [Delete and Heal for Vector Networks]
 
@@ -294,7 +312,7 @@ export function splitSegmentAt(
 ): VectorNetworkData;
 ```
 
-Deleting a vertex: after removing the vertex and its incident edges, a degree-2 neighbor is "healed" by merging its two edges into one, keeping the path connected (matching Figma's Delete and Heal):
+Deleting a vertex: after removing the vertex and its incident edges, a degree-2 neighbor is "healed" by merging its two edges into one, keeping the path connected (matching Figma's Delete and Heal). Triggered with **Delete / Backspace** in edit mode:
 
 ```ts
 export function deleteVertex(
@@ -309,9 +327,28 @@ export function deleteVertex(
 
 ![Glue and unglue operator](/vgc-operator-glue-unglue.png)
 
-### Cut & uncut
+### Cut & uncut {#cut-uncut}
 
 ![Cut and uncut operator](/vgc-operator-cut-uncut.png)
+
+Cut **breaks topology at the cut vertex** (it does not remove the opposite edge). On a closed loop, keep both incident edges at the cut point, duplicate the closing endpoint, and rewrite the closing segment so the path opens there. For triangle `0—1—2—0` with a cut at vertex `1`:
+
+```plaintext
+Before:  0 — 1 — 2 — 0 (closed)
+After:   0 — 1 — 2 — 3 (3 coincident with 0, open polyline)
+segments: [0,1], [1,2], [2,3]
+```
+
+On an open polyline, **duplicate the cut vertex** and reassign all but the first incident edge to the copy so the two chains can be pulled apart in Move mode. See `breakVertex`:
+
+```ts
+export function breakVertex(
+    network: VectorNetworkData,
+    vertexIndex: number,
+): VectorNetworkData | null;
+```
+
+Clicking a vertex in Cut mode calls `breakVectorNetworkAtVertex` (`Select.ts`), writes back the network, records history, and `setAppState({ vectorNetworkEditMode: MOVE })` so you can drag immediately. `regions` are dropped after a break; use click-to-fill again or rebuild via region detection later.
 
 ## Extended reading {#extended-reading}
 

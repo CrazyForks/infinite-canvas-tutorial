@@ -1,4 +1,6 @@
 import { path2Absolute } from '@antv/util';
+import { vec2 } from 'gl-matrix';
+import { CubicBezierCurve } from './curve/cubic-bezier-curve';
 import type {
   VectorSegmentLike,
   VectorVertexLike,
@@ -277,6 +279,37 @@ function isStraightSegment(seg: VectorSegmentLike): boolean {
   );
 }
 
+/** Parametric point on a vector-network segment in local coordinates. */
+export function getVectorSegmentPointAt(
+  vertices: VectorVertexLike[],
+  seg: VectorSegmentLike,
+  t: number,
+): [number, number] | null {
+  const a = vertices[seg.start];
+  const b = vertices[seg.end];
+  if (!a || !b) {
+    return null;
+  }
+
+  if (isStraightSegment(seg)) {
+    return [a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t];
+  }
+
+  const p0 = vec2.fromValues(a.x, a.y);
+  const p3 = vec2.fromValues(b.x, b.y);
+  const p1 = vec2.create();
+  const p2 = vec2.create();
+  vec2.add(p1, p0, vec2.fromValues(seg.tangentStart?.x ?? 0, seg.tangentStart?.y ?? 0));
+  vec2.add(p2, p3, vec2.fromValues(seg.tangentEnd?.x ?? 0, seg.tangentEnd?.y ?? 0));
+  const point = new CubicBezierCurve(
+    vec2.clone(p0),
+    vec2.clone(p1),
+    vec2.clone(p2),
+    vec2.clone(p3),
+  ).getPoint(t);
+  return [point[0], point[1]];
+}
+
 /**
  * Splits the segment at index `segmentIndex` at parameter `t` (0..1), inserting
  * a new vertex. Loops in `regions` referencing the segment are rewritten so the
@@ -460,4 +493,168 @@ export function deleteVertex(
     segments: newSegments,
   };
   return result;
+}
+
+function cloneSegments(segments: VectorSegmentLike[]): VectorSegmentLike[] {
+  return segments.map((s) => ({
+    ...s,
+    tangentStart: s.tangentStart ? { ...s.tangentStart } : undefined,
+    tangentEnd: s.tangentEnd ? { ...s.tangentEnd } : undefined,
+  }));
+}
+
+/**
+ * Walk from `fromVertex` away from `avoidVertex` until `targetVertex` is reached.
+ * Returns the last segment on that path (the closing edge of a simple loop cut).
+ */
+function findLoopClosingSegmentIndex(
+  segments: VectorSegmentLike[],
+  avoidVertex: number,
+  fromVertex: number,
+  targetVertex: number,
+): number | null {
+  let current = fromVertex;
+  let prev = avoidVertex;
+  while (current !== targetVertex) {
+    const neighbors: { segIdx: number; vtx: number }[] = [];
+    segments.forEach((s, i) => {
+      if (s.start === current) {
+        neighbors.push({ segIdx: i, vtx: s.end });
+      } else if (s.end === current) {
+        neighbors.push({ segIdx: i, vtx: s.start });
+      }
+    });
+    const next = neighbors.filter((n) => n.vtx !== prev);
+    if (next.length !== 1) {
+      return null;
+    }
+    const { segIdx, vtx } = next[0];
+    if (vtx === targetVertex) {
+      return segIdx;
+    }
+    prev = current;
+    current = vtx;
+  }
+  return null;
+}
+
+function replaceVertexOnSegment(
+  seg: VectorSegmentLike,
+  oldIndex: number,
+  newIndex: number,
+) {
+  if (seg.start === oldIndex) {
+    seg.start = newIndex;
+  } else if (seg.end === oldIndex) {
+    seg.end = newIndex;
+  }
+}
+
+/**
+ * Split the vector network at a vertex.
+ * - On a closed loop (degree 2): keep both incident edges on the cut vertex,
+ *   duplicate a loop endpoint on the closing edge so the path opens as
+ *   … A — V — B — … — A′ (e.g. triangle cut at 1 → 0-1, 1-2, 2-3 with 3 ≡ 0).
+ * - On an open path: duplicate the cut vertex and reassign all but one incident
+ *   segment to the copy so the chains can be pulled apart by dragging.
+ */
+export function breakVertex(
+  network: VectorNetworkData,
+  vertexIndex: number,
+): VectorNetworkData | null {
+  const { vertices, segments } = network;
+  if (vertexIndex < 0 || vertexIndex >= vertices.length) {
+    return null;
+  }
+
+  const incident: number[] = [];
+  segments.forEach((s, i) => {
+    if (s.start === vertexIndex || s.end === vertexIndex) {
+      incident.push(i);
+    }
+  });
+
+  if (incident.length < 2) {
+    return null;
+  }
+
+  if (incident.length === 2) {
+    const segA = segments[incident[0]];
+    const segB = segments[incident[1]];
+    const neighborA = segA.start === vertexIndex ? segA.end : segA.start;
+    const neighborB = segB.start === vertexIndex ? segB.end : segB.start;
+
+    const returnToBIdx = incident.find((i) => {
+      const s = segments[i];
+      return (
+        (s.start === vertexIndex && s.end === neighborB) ||
+        (s.end === vertexIndex && s.start === neighborB)
+      );
+    });
+
+    const closingIndex = findLoopClosingSegmentIndex(
+      segments,
+      vertexIndex,
+      neighborB,
+      neighborA,
+    );
+
+    const newVertices = vertices.map((v) => ({ ...v }));
+    const newSegments = cloneSegments(segments);
+
+    const closingIsDirectNeighborLink =
+      closingIndex !== null &&
+      !incident.includes(closingIndex) &&
+      (() => {
+        const s = segments[closingIndex];
+        return (
+          (s.start === neighborA && s.end === neighborB) ||
+          (s.start === neighborB && s.end === neighborA)
+        );
+      })();
+
+    const useClosingWalk =
+      closingIndex !== null &&
+      !incident.includes(closingIndex) &&
+      (!closingIsDirectNeighborLink || vertexIndex > neighborA);
+
+    if (useClosingWalk) {
+      const newVertexIndex = newVertices.length;
+      newVertices.push({ ...vertices[neighborA] });
+      replaceVertexOnSegment(
+        newSegments[closingIndex],
+        neighborA,
+        newVertexIndex,
+      );
+      return { vertices: newVertices, segments: newSegments };
+    }
+
+    if (returnToBIdx !== undefined) {
+      const newVertexIndex = newVertices.length;
+      newVertices.push({ ...vertices[vertexIndex] });
+      replaceVertexOnSegment(
+        newSegments[returnToBIdx],
+        vertexIndex,
+        newVertexIndex,
+      );
+      return { vertices: newVertices, segments: newSegments };
+    }
+
+    return null;
+  }
+
+  const newVertexIndex = vertices.length;
+  const newVertices = vertices.map((v) => ({ ...v }));
+  newVertices.push({ ...vertices[vertexIndex] });
+
+  const newSegments = cloneSegments(segments);
+
+  for (let i = 1; i < incident.length; i++) {
+    replaceVertexOnSegment(newSegments[incident[i]], vertexIndex, newVertexIndex);
+  }
+
+  return {
+    vertices: newVertices,
+    segments: newSegments,
+  };
 }

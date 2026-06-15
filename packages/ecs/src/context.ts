@@ -8,6 +8,7 @@ import {
   DEFAULT_THEME_COLORS,
   BrushType,
   StampMode,
+  VectorNetworkEditMode,
 } from './components';
 import {
   TRANSFORMER_ANCHOR_STROKE_COLOR,
@@ -192,6 +193,8 @@ export interface AppState {
    * Points in editing mode.
    */
   editingPoints: [number, number][];
+  /** VectorNetwork 顶点编辑工具：Move / Bend / Cut */
+  vectorNetworkEditMode: VectorNetworkEditMode;
 
   /**
    * loading state
@@ -516,6 +519,7 @@ export const getDefaultAppState: () => AppState = () => {
     snapLineStroke: 'orange',
     snapLineStrokeWith: 1,
     editingPoints: [],
+    vectorNetworkEditMode: VectorNetworkEditMode.MOVE,
     loading: false,
     loadingMessage: '',
     filter: '',

@@ -30,6 +30,7 @@ export * from './export-panel';
 export * from './context-bar';
 export * from './context-common-bar';
 export * from './context-image-edit-bar';
+export * from './context-vector-network-edit-bar';
 export * from './context-menu';
 export type { MermaidPasteStyleFn } from '../API';
 export * from './fill-section';
