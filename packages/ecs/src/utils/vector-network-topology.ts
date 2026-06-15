@@ -1,10 +1,11 @@
 import { path2Absolute } from '@antv/util';
-import { vec2 } from 'gl-matrix';
+import { mat3, vec2 } from 'gl-matrix';
 import { CubicBezierCurve } from './curve/cubic-bezier-curve';
 import type {
   VectorSegmentLike,
   VectorVertexLike,
 } from './vector-network-stroke';
+import { expandBoundsWithVectorSegments } from './vector-network-stroke';
 import type { VectorRegionLike } from './vector-network-fill';
 
 const EPS = 1e-6;
@@ -657,4 +658,192 @@ export function breakVertex(
     vertices: newVertices,
     segments: newSegments,
   };
+}
+
+function segmentUndirectedKey(start: number, end: number): string {
+  return start < end ? `${start}:${end}` : `${end}:${start}`;
+}
+
+/**
+ * Merge `sourceVertexIndex` into `targetVertexIndex`. The source vertex is
+ * removed; incident segments are rewired to the target. Zero-length and
+ * duplicate (same vertex pair) segments are dropped; region loops are updated
+ * when segments are removed.
+ */
+export function mergeVertices(
+  network: VectorNetworkData,
+  sourceVertexIndex: number,
+  targetVertexIndex: number,
+): VectorNetworkData | null {
+  if (sourceVertexIndex === targetVertexIndex) {
+    return null;
+  }
+
+  const { vertices, segments } = network;
+  if (
+    sourceVertexIndex < 0 ||
+    sourceVertexIndex >= vertices.length ||
+    targetVertexIndex < 0 ||
+    targetVertexIndex >= vertices.length
+  ) {
+    return null;
+  }
+
+  const remapped = segments.map((s) => ({
+    ...s,
+    tangentStart: s.tangentStart ? { ...s.tangentStart } : undefined,
+    tangentEnd: s.tangentEnd ? { ...s.tangentEnd } : undefined,
+    start: s.start === sourceVertexIndex ? targetVertexIndex : s.start,
+    end: s.end === sourceVertexIndex ? targetVertexIndex : s.end,
+  }));
+
+  const filteredSegments: VectorSegmentLike[] = [];
+  const oldSegmentToNew = new Map<number, number>();
+  const seen = new Set<string>();
+
+  remapped.forEach((s, oldIndex) => {
+    if (s.start === s.end) {
+      return;
+    }
+    const key = segmentUndirectedKey(s.start, s.end);
+    if (seen.has(key)) {
+      return;
+    }
+    seen.add(key);
+    oldSegmentToNew.set(oldIndex, filteredSegments.length);
+    filteredSegments.push(s);
+  });
+
+  const vertexRemap = new Map<number, number>();
+  const newVertices: VectorVertexLike[] = [];
+  vertices.forEach((v, i) => {
+    if (i === sourceVertexIndex) {
+      return;
+    }
+    vertexRemap.set(i, newVertices.length);
+    newVertices.push({ ...v });
+  });
+
+  const newSegments: VectorSegmentLike[] = [];
+  for (const s of filteredSegments) {
+    const start = vertexRemap.get(s.start);
+    const end = vertexRemap.get(s.end);
+    if (start === undefined || end === undefined || start === end) {
+      continue;
+    }
+    newSegments.push({ ...s, start, end });
+  }
+
+  const result: VectorNetworkData = {
+    vertices: newVertices,
+    segments: newSegments,
+  };
+
+  if (network.regions) {
+    const regions = network.regions
+      .map((region) => ({
+        fillRule: region.fillRule,
+        loops: (region.loops as number[][])
+          .map((loop) => {
+            const next: number[] = [];
+            for (const oldSegIdx of loop) {
+              const mapped = oldSegmentToNew.get(oldSegIdx);
+              if (mapped !== undefined) {
+                next.push(mapped);
+              }
+            }
+            return next;
+          })
+          .filter((loop) => loop.length >= 3),
+      }))
+      .filter((region) => region.loops.length > 0);
+    if (regions.length > 0) {
+      result.regions = regions;
+    }
+  }
+
+  return result;
+}
+
+function vectorNetworkGeometryBounds(
+  vertices: VectorVertexLike[],
+  segments: VectorSegmentLike[],
+): { minX: number; minY: number; maxX: number; maxY: number } {
+  if (!vertices.length) {
+    return { minX: 0, minY: 0, maxX: 0, maxY: 0 };
+  }
+  let minX = Math.min(...vertices.map(({ x }) => x));
+  let maxX = Math.max(...vertices.map(({ x }) => x));
+  let minY = Math.min(...vertices.map(({ y }) => y));
+  let maxY = Math.max(...vertices.map(({ y }) => y));
+  if (segments.length) {
+    return expandBoundsWithVectorSegments(
+      vertices,
+      segments,
+      minX,
+      minY,
+      maxX,
+      maxY,
+    );
+  }
+  return { minX, minY, maxX, maxY };
+}
+
+function transformVectorTangent(
+  geomDelta: mat3,
+  tangent?: { x: number; y: number },
+): { x: number; y: number } | undefined {
+  if (!tangent) {
+    return undefined;
+  }
+  const out = vec2.transformMat3(vec2.create(), [tangent.x, tangent.y], geomDelta);
+  if (Math.abs(out[0]) < EPS && Math.abs(out[1]) < EPS) {
+    return undefined;
+  }
+  return { x: out[0], y: out[1] };
+}
+
+/**
+ * Applies a local linear resize delta to vector-network geometry (vertices and
+ * relative segment tangents), then re-normalizes so the bounds top-left is at
+ * the local origin — matching {@link VectorNetwork} / deserialize conventions.
+ */
+export function transformVectorNetworkGeometry(
+  network: VectorNetworkData,
+  geomDelta: mat3,
+): VectorNetworkData {
+  const shiftedVertices = network.vertices.map((vertex) => {
+    const out = vec2.transformMat3(
+      vec2.create(),
+      [vertex.x, vertex.y],
+      geomDelta,
+    );
+    return { ...vertex, x: out[0], y: out[1] };
+  });
+  const shiftedSegments = network.segments.map((segment) => ({
+    ...segment,
+    tangentStart: transformVectorTangent(geomDelta, segment.tangentStart),
+    tangentEnd: transformVectorTangent(geomDelta, segment.tangentEnd),
+  }));
+
+  const { minX, minY } = vectorNetworkGeometryBounds(
+    shiftedVertices,
+    shiftedSegments,
+  );
+
+  const result: VectorNetworkData = {
+    vertices: shiftedVertices.map((vertex) => ({
+      ...vertex,
+      x: vertex.x - minX,
+      y: vertex.y - minY,
+    })),
+    segments: shiftedSegments.map((segment) => ({ ...segment })),
+  };
+  if (network.regions) {
+    result.regions = network.regions.map((region) => ({
+      fillRule: region.fillRule,
+      loops: (region.loops as number[][]).map((loop) => [...loop]),
+    }));
+  }
+  return result;
 }

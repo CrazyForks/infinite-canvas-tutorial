@@ -3,10 +3,13 @@ import {
   splitSegmentAt,
   deleteVertex,
   breakVertex,
+  mergeVertices,
+  transformVectorNetworkGeometry,
   findRegionLoopAtPoint,
   contourFromSegmentLoop,
   type VectorNetworkData,
 } from '../../packages/ecs/src/utils';
+import { mat3 } from 'gl-matrix';
 
 describe('pathToVectorNetwork', () => {
   it('converts a closed triangle into vertices/segments/regions', () => {
@@ -190,6 +193,82 @@ describe('breakVertex', () => {
     const network = pathToVectorNetwork('M 0 0 L 100 0') as VectorNetworkData;
     expect(breakVertex(network, 0)).toBeNull();
     expect(breakVertex(network, 1)).toBeNull();
+  });
+});
+
+describe('mergeVertices', () => {
+  it('merges the dragged endpoint into another on an open path', () => {
+    const network = pathToVectorNetwork(
+      'M 0 0 L 50 50 L 100 0',
+    ) as VectorNetworkData;
+    const result = mergeVertices(network, 2, 1);
+    expect(result).not.toBeNull();
+    expect(result!.vertices).toEqual([
+      { x: 0, y: 0 },
+      { x: 50, y: 50 },
+    ]);
+    expect(result!.segments.map((s) => [s.start, s.end])).toEqual([[0, 1]]);
+  });
+
+  it('merges an interior vertex into a neighbor', () => {
+    const network = pathToVectorNetwork(
+      'M 0 0 L 50 50 L 100 0',
+    ) as VectorNetworkData;
+    const result = mergeVertices(network, 1, 0);
+    expect(result).not.toBeNull();
+    expect(result!.vertices).toEqual([
+      { x: 0, y: 0 },
+      { x: 100, y: 0 },
+    ]);
+    expect(result!.segments.map((s) => [s.start, s.end])).toEqual([[0, 1]]);
+  });
+
+  it('collapses a triangle corner into a single edge', () => {
+    const network = pathToVectorNetwork(
+      'M 0 0 L 100 0 L 50 100 Z',
+    ) as VectorNetworkData;
+    const result = mergeVertices(network, 1, 0);
+    expect(result).not.toBeNull();
+    expect(result!.vertices).toEqual([
+      { x: 0, y: 0 },
+      { x: 50, y: 100 },
+    ]);
+    expect(result!.segments.map((s) => [s.start, s.end])).toEqual([[0, 1]]);
+    expect(result!.regions).toBeUndefined();
+  });
+
+  it('returns null when source and target are the same', () => {
+    const network = pathToVectorNetwork('M 0 0 L 100 0') as VectorNetworkData;
+    expect(mergeVertices(network, 0, 0)).toBeNull();
+  });
+});
+
+describe('transformVectorNetworkGeometry', () => {
+  it('scales vertices and cubic tangents, then re-normalizes to the origin', () => {
+    const network: VectorNetworkData = {
+      vertices: [
+        { x: 0, y: 0 },
+        { x: 100, y: 0 },
+      ],
+      segments: [
+        {
+          start: 0,
+          end: 1,
+          tangentStart: { x: 50, y: 50 },
+          tangentEnd: { x: -50, y: 50 },
+        },
+      ],
+    };
+    const geomDelta = mat3.fromScaling(mat3.create(), [2, 2]);
+    const result = transformVectorNetworkGeometry(network, geomDelta);
+    expect(result.vertices).toEqual([
+      { x: 0, y: 0 },
+      { x: 200, y: 0 },
+    ]);
+    expect(result.segments[0].tangentStart).toEqual({ x: 100, y: 100 });
+    expect(result.segments[0].tangentEnd).toEqual({ x: -100, y: 100 });
+    expect(Math.min(...result.vertices.map((v) => v.x))).toBe(0);
+    expect(Math.min(...result.vertices.map((v) => v.y))).toBe(0);
   });
 });
 

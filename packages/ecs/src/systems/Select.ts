@@ -105,9 +105,9 @@ import {
   snapToGrid,
 } from '../utils';
 import { API } from '../API';
-import { getOBB, hitTest, findHoveredVectorNetworkSegmentIndex } from './RenderTransformer';
+import { getOBB, hitTest, findHoveredVectorNetworkSegmentIndex, findSnapTargetVertexIndex } from './RenderTransformer';
 import { requestTransformerRefreshForCanvas } from '../utils/pick3d-bridge';
-import { splitSegmentAt, deleteVertex, breakVertex } from '../utils/vector-network-topology';
+import { splitSegmentAt, deleteVertex, breakVertex, mergeVertices } from '../utils/vector-network-topology';
 import { updateGlobalTransform } from './Transform';
 import { safeAddComponent } from '../history';
 import { updateComputedPoints } from './ComputePoints';
@@ -1283,10 +1283,9 @@ export class Select extends System {
       if (!selectedVN?.has(VectorNetwork)) {
         return;
       }
-      const inverseVN = mat3.invert(
-        mat3.create(),
-        selectedVN.read(GlobalTransform).matrix as unknown as mat3,
-      );
+      const vnMatrix = selectedVN.read(GlobalTransform)
+        .matrix as unknown as mat3;
+      const inverseVN = mat3.invert(mat3.create(), vnMatrix);
       if (!inverseVN) {
         return;
       }
@@ -1296,22 +1295,44 @@ export class Select extends System {
         inverseVN,
       );
       const vn = selectedVN.read(VectorNetwork);
-      if (activeControlPointIndex >= vn.vertices.length) {
+      const vertices = vn.vertices.map((v) => ({ ...v }));
+      const segments = vn.segments.map((s) => ({
+        ...s,
+        tangentStart: s.tangentStart ? { ...s.tangentStart } : undefined,
+        tangentEnd: s.tangentEnd ? { ...s.tangentEnd } : undefined,
+      }));
+      const regions = vn.regions?.map((r) => ({
+        fillRule: r.fillRule,
+        loops: r.loops.map((loop) => [...loop]),
+      }));
+      if (activeControlPointIndex >= vertices.length) {
         return;
       }
-      const prev = vn.vertices[activeControlPointIndex];
-      if (prev.x === localVN[0] && prev.y === localVN[1]) {
+      const snapTargetIndex = findSnapTargetVertexIndex(
+        api,
+        vertices,
+        vnMatrix,
+        activeControlPointIndex,
+        canvasX,
+        canvasY,
+      );
+      const nextX =
+        snapTargetIndex >= 0 ? vertices[snapTargetIndex].x : localVN[0];
+      const nextY =
+        snapTargetIndex >= 0 ? vertices[snapTargetIndex].y : localVN[1];
+      const prev = vertices[activeControlPointIndex];
+      if (prev.x === nextX && prev.y === nextY) {
         return;
       }
-      const nextVertices = vn.vertices.map((v, i) =>
+      const nextVertices = vertices.map((v, i) =>
         i === activeControlPointIndex
-          ? { ...v, x: localVN[0], y: localVN[1] }
+          ? { ...v, x: nextX, y: nextY }
           : { ...v },
       );
       api.updateNodeVectorNetwork(node, {
         vertices: nextVertices,
-        segments: vn.segments.map((s) => ({ ...s })),
-        regions: vn.regions?.map((r) => ({ ...r })),
+        segments,
+        regions,
       } as VectorNetwork);
       updateGlobalTransform(selectedVN);
       return;
@@ -1432,6 +1453,8 @@ export class Select extends System {
 
     const camera = api.getCamera();
 
+    this.mergeSnappedVectorNetworkVertexIfNeeded(api, selection);
+
     api.setNodes(api.getNodes());
     api.record();
 
@@ -1448,6 +1471,98 @@ export class Select extends System {
 
     camera.write(Transformable).status = TransformableStatus.MOVED;
     this.saveSelectedOBB(api, selection);
+  }
+
+  private mergeSnappedVectorNetworkVertexIfNeeded(
+    api: API,
+    selection: SelectOBB,
+  ) {
+    const activeControlPointIndex = selection.activeControlPointIndex;
+    if (activeControlPointIndex === undefined || activeControlPointIndex < 0) {
+      return;
+    }
+    if (
+      selection.activeTangentHandleIndex !== undefined &&
+      selection.activeTangentHandleIndex >= 0
+    ) {
+      return;
+    }
+    if (
+      selection.activeSegmentIndex !== undefined &&
+      selection.activeSegmentIndex >= 0
+    ) {
+      return;
+    }
+    if (api.getAppState().vectorNetworkEditMode !== VectorNetworkEditMode.MOVE) {
+      return;
+    }
+
+    const layersSelected = api.getAppState().layersSelected;
+    if (layersSelected.length !== 1) {
+      return;
+    }
+
+    const node = api.getNodeById(layersSelected[0]);
+    if (!node || node.type !== 'vector-network') {
+      return;
+    }
+
+    const selected = api.getEntity(node);
+    if (!selected?.has(VectorNetwork)) {
+      return;
+    }
+
+    const { x: canvasX, y: canvasY } = api.viewport2Canvas({
+      x: selection.pointerMoveViewportX,
+      y: selection.pointerMoveViewportY,
+    });
+    const vnMatrix = selected.read(GlobalTransform).matrix as unknown as mat3;
+    const vn = selected.read(VectorNetwork);
+    const snapTargetIndex = findSnapTargetVertexIndex(
+      api,
+      vn.vertices,
+      vnMatrix,
+      activeControlPointIndex,
+      canvasX,
+      canvasY,
+    );
+    if (snapTargetIndex < 0) {
+      return;
+    }
+
+    const network = {
+      vertices: vn.vertices.map((v) => ({ ...v })),
+      segments: vn.segments.map((s) => ({
+        ...s,
+        tangentStart: s.tangentStart ? { ...s.tangentStart } : undefined,
+        tangentEnd: s.tangentEnd ? { ...s.tangentEnd } : undefined,
+      })),
+      regions: vn.regions?.map((r) => ({
+        fillRule: r.fillRule,
+        loops: r.loops.map((loop) => [...loop]),
+      })),
+    };
+    const result = mergeVertices(
+      network,
+      activeControlPointIndex,
+      snapTargetIndex,
+    );
+    if (!result) {
+      return;
+    }
+
+    api.updateNodeVectorNetwork(node, result as VectorNetwork);
+    const mergedIndex =
+      snapTargetIndex > activeControlPointIndex
+        ? snapTargetIndex - 1
+        : snapTargetIndex;
+    selection.activeControlPointIndex = mergedIndex;
+    this.setVectorNetworkSelectedVertex(
+      api.getCamera(),
+      api.getCanvas(),
+      mergedIndex,
+    );
+    updateGlobalTransform(selected);
   }
 
   private handleVectorNetworkSegmentMoving(
@@ -2361,7 +2476,10 @@ export class Select extends System {
                   vectorNetworkEditMode: VectorNetworkEditMode.MOVE,
                 });
                 selection.editing = selected;
-                camera.write(Transformable).selectedControlPointIndex = -1;
+                const transformable = camera.write(Transformable);
+                transformable.selectedControlPointIndex = -1;
+                transformable.hoveredSegmentIndex = -1;
+                transformable.hoveredControlPointIndex = -1;
                 requestTransformerRefreshForCanvas(canvas);
                 return;
               }
@@ -3192,10 +3310,10 @@ export class Select extends System {
        */
       const skipGeometryDeltaForEdge =
         selection.mode === SelectionMode.ROTATE &&
-        selected.hasSomeOf(Polyline, Path, Line);
+        selected.hasSomeOf(Polyline, Path, Line, VectorNetwork);
       if (
         !skipGeometryDeltaForEdge &&
-        selected.hasSomeOf(Polyline, Path, Line)
+        selected.hasSomeOf(Polyline, Path, Line, VectorNetwork)
       ) {
         const signW = Math.sign(width) || 1;
         const signH = Math.sign(height) || 1;

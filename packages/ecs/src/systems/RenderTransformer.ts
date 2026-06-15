@@ -27,6 +27,7 @@ import {
   TransformableStatus,
   AnchorName,
   Visibility,
+  ComputedVisibility,
   Text,
   Camera,
   Anchor,
@@ -73,6 +74,8 @@ import type { VectorSegmentLike, VectorVertexLike } from '../utils/vector-networ
 const TRANSFORMER_ANCHOR_RADIUS = 5;
 export const TRANSFORMER_ANCHOR_ROTATE_RADIUS = 20;
 export const TRANSFORMER_ANCHOR_RESIZE_RADIUS = 5;
+/** Viewport px — snap a dragged vector-network vertex onto another when this close. */
+export const VECTOR_NETWORK_VERTEX_SNAP_RADIUS = TRANSFORMER_ANCHOR_RADIUS + 3;
 // --spectrum-thumbnail-border-color-selected
 export const TRANSFORMER_MASK_FILL_COLOR = '#e0f2ff';
 export const TRANSFORMER_ANCHOR_STROKE_COLOR = '#147af3';
@@ -150,6 +153,7 @@ export class RenderTransformer extends System {
             Line,
             Binding,
             PartialBinding,
+            ComputedVisibility
           ).write,
     );
   }
@@ -345,7 +349,7 @@ export class RenderTransformer extends System {
       const seg = segments[i];
       const localPoint = seg ? getVectorSegmentPointAt(vertices, seg, 0.5) : null;
       if (!localPoint || !showSegmentMidpoints) {
-        midpoint.write(Visibility).value = 'hidden';
+        writeEntityVisibility(midpoint, 'hidden');
         updateGlobalTransform(midpoint);
         return;
       }
@@ -354,8 +358,10 @@ export class RenderTransformer extends System {
         cx: transformed[0],
         cy: transformed[1],
       });
-      midpoint.write(Visibility).value =
-        i === hoveredSegmentIndex ? 'visible' : 'hidden';
+      writeEntityVisibility(
+        midpoint,
+        i === hoveredSegmentIndex ? 'visible' : 'hidden',
+      );
       updateGlobalTransform(midpoint);
     });
 
@@ -780,10 +786,7 @@ export class RenderTransformer extends System {
         ],
       });
       this.commands.execute();
-      return;
-    }
-
-    if (toCreateAnchorNumber < 0) {
+    } else if (toCreateAnchorNumber < 0) {
       for (let i = 0; i < Math.abs(toCreateAnchorNumber); i++) {
         const anchor = transformable.segmentMidpoints.pop();
         if (anchor) {
@@ -969,7 +972,7 @@ export class RenderTransformer extends System {
       updateGlobalTransform(controlPoint);
     });
     transformable.segmentMidpoints?.forEach((midpoint) => {
-      midpoint.write(Visibility).value = 'hidden';
+      writeEntityVisibility(midpoint, 'hidden');
       updateGlobalTransform(midpoint);
     });
     transformable.vnTangentHandles?.forEach((handle) => {
@@ -1395,6 +1398,29 @@ export function getOBB(camera: Entity): OBB {
   };
 }
 
+/** Sync {@link ComputedVisibility} immediately — RenderTransformer runs after ComputeVisibility. */
+function writeEntityVisibility(
+  entity: Entity,
+  value: 'inherited' | 'hidden' | 'visible',
+) {
+  entity.write(Visibility).value = value;
+  if (!entity.has(ComputedVisibility)) {
+    entity.add(ComputedVisibility);
+  }
+  const computed = entity.write(ComputedVisibility);
+  if (value === 'hidden') {
+    computed.visible = false;
+  } else if (value === 'visible') {
+    computed.visible = true;
+  } else {
+    const parent = entity.has(Children) && entity.read(Children).parent;
+    computed.visible =
+      parent?.has(ComputedVisibility) ?
+        parent.read(ComputedVisibility).visible
+        : true;
+  }
+}
+
 function isSelectVertexEditing(pen: Pen, selected: Entity): boolean {
   if (pen !== Pen.SELECT) {
     return false;
@@ -1493,6 +1519,46 @@ function distanceViewportToVectorSegment(
     );
   }
   return minDistance;
+}
+
+export function findSnapTargetVertexIndex(
+  api: API,
+  vertices: VectorVertexLike[],
+  matrix: mat3,
+  draggedVertexIndex: number,
+  canvasX: number,
+  canvasY: number,
+  maxDistance = VECTOR_NETWORK_VERTEX_SNAP_RADIUS,
+): number {
+  const pointerViewport = api.canvas2Viewport({ x: canvasX, y: canvasY });
+  let bestIndex = -1;
+  let bestDistance = maxDistance;
+
+  for (let i = 0; i < vertices.length; i++) {
+    if (i === draggedVertexIndex) {
+      continue;
+    }
+    const v = vertices[i];
+    const canvasPoint = vec2.transformMat3(
+      vec2.create(),
+      [v.x, v.y],
+      matrix,
+    );
+    const vertexViewport = api.canvas2Viewport({
+      x: canvasPoint[0],
+      y: canvasPoint[1],
+    });
+    const distance = Math.hypot(
+      vertexViewport.x - pointerViewport.x,
+      vertexViewport.y - pointerViewport.y,
+    );
+    if (distance <= bestDistance) {
+      bestDistance = distance;
+      bestIndex = i;
+    }
+  }
+
+  return bestIndex;
 }
 
 export function findHoveredVectorNetworkSegmentIndex(

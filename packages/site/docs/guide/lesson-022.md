@@ -7,6 +7,7 @@ head:
 
 <script setup>
 import VectorNetwork from '../components/VectorNetwork.vue';
+import VectorNetworkCube from '../components/VectorNetworkCube.vue';
 </script>
 
 # Lesson 22 - VectorNetwork
@@ -51,6 +52,10 @@ Besides vertices not being able to have more than 2 edges, edges cannot be share
 Or using the example of dragging an edge of a cube from [The Engineering behind Figma's Vector Networks]:
 
 ![Dragging an edge of cube](https://alexharri.com/images/posts/vector-networks/31.svg)
+
+Double-click to enter edit mode, then drag any edge of the cube:
+
+<VectorNetworkCube />
 
 It's worth mentioning that the [Discussion in HN] points out the remarkable similarity between VGC and Figma's VectorNetwork. Considering that both started exploring around the same time, they arrived at similar solutions through different paths, hence we'll use the term VectorNetwork in the following text.
 

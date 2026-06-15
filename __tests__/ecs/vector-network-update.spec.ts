@@ -33,6 +33,7 @@ import {
   VectorNetworkSerializedNode,
   Opacity,
 } from '../../packages/ecs/src';
+import { mat3 } from 'gl-matrix';
 import { NodeJSAdapter, sleep } from '../utils';
 
 DOMAdapter.set(NodeJSAdapter);
@@ -166,6 +167,117 @@ describe('updateNodeVectorNetwork', () => {
     // normalization it sits at local x === 0.
     expect(serialized.vertices[0].x).toBeCloseTo(0, 3);
     expect(Math.min(...serialized.vertices.map((v) => v.x))).toBeCloseTo(0, 3);
+
+    await app.exit();
+  });
+
+  it('scales geometry when updateNodeOBB receives a resize delta', async () => {
+    const app = new App();
+
+    let api: API;
+    let vnNode: VectorNetworkSerializedNode;
+
+    const MyPlugin: Plugin = () => {
+      system(PreStartUp)(StartUpSystem);
+      system((s) => s.before(ComputeZIndex))(StartUpSystem);
+    };
+
+    class StartUpSystem extends System {
+      private readonly commands = new Commands(this);
+
+      q = this.query(
+        (q) =>
+          q.using(
+            Canvas,
+            Theme,
+            Grid,
+            Camera,
+            Parent,
+            Children,
+            Transform,
+            Renderable,
+            FillLayers,
+            StrokeLayers,
+            Stroke,
+            Rect,
+            VectorNetwork,
+            Visibility,
+            Name,
+            DropShadow,
+            ZIndex,
+            Opacity,
+          ).write,
+      );
+
+      initialize(): void {
+        const $canvas = DOMAdapter.get().createCanvas(
+          200,
+          200,
+        ) as HTMLCanvasElement;
+
+        api = new API(new DefaultStateManagement(), this.commands);
+
+        api.createCanvas({
+          element: $canvas,
+          width: 200,
+          height: 200,
+          devicePixelRatio: 1,
+        });
+        api.createCamera({ zoom: 1 });
+
+        vnNode = {
+          type: 'vector-network',
+          id: 'vn-resize',
+          zIndex: 1,
+          strokes: [{ type: 'solid', value: 'black', opacity: 1 }],
+          strokeWidth: 2,
+          vertices: [
+            { x: 0, y: 0 },
+            { x: 100, y: 0 },
+            { x: 50, y: 100 },
+          ],
+          segments: [
+            { start: 0, end: 1 },
+            { start: 1, end: 2 },
+            { start: 2, end: 0 },
+          ],
+        };
+
+        api.updateNodes([vnNode]);
+      }
+    }
+
+    app.addPlugins(...DefaultPlugins, MyPlugin);
+    await app.run();
+    await sleep(300);
+
+    const before = api.getNodeById('vn-resize') as VectorNetworkSerializedNode;
+    const scaleDelta = mat3.fromScaling(mat3.create(), [2, 2]);
+    api.updateNodeOBB(
+      before,
+      {
+        x: before.x,
+        y: before.y,
+        width: (before.width ?? 0) * 2,
+        height: (before.height ?? 0) * 2,
+        rotation: before.rotation ?? 0,
+        scaleX: before.scaleX ?? 1,
+        scaleY: before.scaleY ?? 1,
+      },
+      false,
+      scaleDelta,
+      before,
+    );
+
+    await sleep(100);
+
+    const after = api.getNodeById('vn-resize') as VectorNetworkSerializedNode;
+    expect(after.width).toBeCloseTo((before.width ?? 0) * 2, 3);
+    expect(after.height).toBeCloseTo((before.height ?? 0) * 2, 3);
+    expect(after.vertices[1].x).toBeCloseTo(200, 3);
+    expect(after.vertices[2].y).toBeCloseTo(200, 3);
+    expect(Math.min(...after.vertices.map((v) => v.x))).toBeCloseTo(0, 3);
+    expect(Math.min(...after.vertices.map((v) => v.y))).toBeCloseTo(0, 3);
 
     await app.exit();
   });

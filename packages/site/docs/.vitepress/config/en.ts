@@ -321,6 +321,10 @@ export const en = defineConfig({
                 link: 'fill-rule',
               },
               {
+                text: 'Vector Network cube (drag edge)',
+                link: 'vector-network-cube',
+              },
+              {
                 text: 'Text',
                 items: [
                   {

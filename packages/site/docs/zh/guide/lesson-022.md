@@ -7,6 +7,7 @@ head:
 
 <script setup>
 import VectorNetwork from '../../components/VectorNetwork.vue';
+import VectorNetworkCube from '../../components/VectorNetworkCube.vue';
 </script>
 
 # 课程 22 - VectorNetwork
@@ -51,6 +52,10 @@ node.vectorPaths = [
 或者使用 [The Engineering behind Figma's Vector Networks] 一文中拖拽立方体一条边的例子：
 
 ![Dragging an edge of cube](https://alexharri.com/images/posts/vector-networks/31.svg)
+
+鼠标双击进入编辑，可以拖拽立方体的任意一条边：
+
+<VectorNetworkCube />
 
 值得一提的是，[Discussion in HN] 中提到了 VGC 和 Figma 的 VectorNetwork 之间奇妙的相似程度，考虑到两者几乎处于同一时期开始探索，在某种程度上算殊途同归，因此下文就使用 VectorNetwork 这一名词了。
 

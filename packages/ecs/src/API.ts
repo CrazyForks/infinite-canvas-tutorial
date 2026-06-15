@@ -48,6 +48,7 @@ import {
   decompose,
   transformPath,
   mat3WithoutTranslation,
+  transformVectorNetworkGeometry,
   buildDesignVariableRefreshPatch,
   expandSerializedNodesForSvgExport,
   serializedNodesToCode,
@@ -66,6 +67,7 @@ import type {
   SerializedNode,
   StrokeAttributes,
   TextSerializedNode,
+  VectorNetworkSerializedNode,
 } from './types/serialized-node';
 import {
   firstEnabledFillPresentation,
@@ -2218,6 +2220,29 @@ export class API {
         (diff as LineSerializedNode).y1 = newY1 - minY;
         (diff as LineSerializedNode).x2 = newX2 - minX;
         (diff as LineSerializedNode).y2 = newY2 - minY;
+      } else if (node.type === 'vector-network') {
+        const oldNetwork = oldNode as VectorNetworkSerializedNode;
+        const transformed = transformVectorNetworkGeometry(
+          {
+            vertices: (oldNetwork.vertices ?? []).map((v) => ({ ...v })),
+            segments: (oldNetwork.segments ?? []).map((s) => ({
+              ...s,
+              tangentStart: s.tangentStart ? { ...s.tangentStart } : undefined,
+              tangentEnd: s.tangentEnd ? { ...s.tangentEnd } : undefined,
+            })),
+            regions: oldNetwork.regions?.map((region) => ({
+              fillRule: region.fillRule,
+              loops: region.loops.map((loop) => [...loop]),
+            })),
+          },
+          geomDelta,
+        );
+        (diff as VectorNetworkSerializedNode).vertices = transformed.vertices;
+        (diff as VectorNetworkSerializedNode).segments = transformed.segments;
+        if (transformed.regions !== undefined) {
+          (diff as VectorNetworkSerializedNode).regions =
+            transformed.regions as VectorNetworkSerializedNode['regions'];
+        }
       } else if (node.type === 'brush') {
         const shiftedPoints = deserializeBrushPoints(
           (oldNode as BrushSerializedNode)?.points,
