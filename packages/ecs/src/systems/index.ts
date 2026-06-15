@@ -35,6 +35,7 @@ export * from './RenderNameLabel';
 export * from './DrawRect';
 export * from './DrawArrowConnect';
 export * from './DrawPencil';
+export * from './DrawVectorNetwork';
 export * from './DrawBrush';
 export * from './DrawPoint';
 export * from './RenderHTML';

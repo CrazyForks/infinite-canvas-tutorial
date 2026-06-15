@@ -239,6 +239,10 @@ export const zh = defineConfig({
                 link: 'fill-rule',
               },
               {
+                text: 'VectorNetwork 立方体（拖拽边）',
+                link: 'vector-network-cube',
+              },
+              {
                 text: '文本',
                 items: [
                   {

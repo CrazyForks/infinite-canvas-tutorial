@@ -23,6 +23,7 @@ import {
   system,
   API,
   ComputeZIndex,
+  GlobalTransform,
 } from '../../packages/ecs/src';
 import { createUnitSphereGeometry } from '../../packages/ecs/src/utils/geometry3d';
 import { NodeJSAdapter, sleep } from '../utils';
@@ -59,6 +60,7 @@ describe('Sphere', () => {
             Mesh3D,
             Material3D,
             Transform3D,
+            GlobalTransform,
           ).write,
       );
 

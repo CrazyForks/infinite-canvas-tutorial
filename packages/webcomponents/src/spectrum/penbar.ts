@@ -460,7 +460,7 @@ export class Penbar extends LitElement {
         () => html`
               <overlay-trigger placement="right">
                 <sp-action-button value="${Pen.PENCIL}" slot="trigger">
-                  <sp-icon-annotate-pen slot="icon"></sp-icon-annotate-pen>
+                  <sp-icon-draw slot="icon"></sp-icon-draw>
                   <sp-tooltip self-managed placement="right">
                     ${msg(str`Pencil`)}
                   </sp-tooltip>
@@ -469,6 +469,17 @@ export class Penbar extends LitElement {
                   <ic-spectrum-penbar-pencil-settings></ic-spectrum-penbar-pencil-settings>
                 </sp-popover>
               </overlay-trigger>
+            `,
+      )}
+          ${when(
+        penbarAll.includes(Pen.VECTOR_NETWORK),
+        () => html`
+              <sp-action-button value="${Pen.VECTOR_NETWORK}">
+                <sp-icon-annotate-pen slot="icon"></sp-icon-annotate-pen>
+                <sp-tooltip self-managed placement="right">
+                  ${msg(str`Vector pen`)}
+                </sp-tooltip>
+              </sp-action-button>
             `,
       )}
           ${when(

@@ -48,6 +48,7 @@ import {
   decompose,
   transformPath,
   mat3WithoutTranslation,
+  transformVectorNetworkGeometry,
   buildDesignVariableRefreshPatch,
   expandSerializedNodesForSvgExport,
   serializedNodesToCode,
@@ -66,6 +67,7 @@ import type {
   SerializedNode,
   StrokeAttributes,
   TextSerializedNode,
+  VectorNetworkSerializedNode,
 } from './types/serialized-node';
 import {
   firstEnabledFillPresentation,
@@ -1983,6 +1985,9 @@ export class API {
         if (!entity.has(Children)) {
           cameraEntityCommands.appendChild(this.commands.entity(entity));
         }
+        // PropagateTransforms already ran this frame; new nodes need a world matrix
+        // before the render pass (SmoothPolyline, transformer anchors, etc.).
+        updateGlobalTransform(entity);
       });
 
       this.commands.execute();
@@ -2052,6 +2057,9 @@ export class API {
         if (!entity.has(Children)) {
           cameraEntityCommands.appendChild(this.commands.entity(entity));
         }
+        // PropagateTransforms already ran this frame; new nodes need a world matrix
+        // before the render pass (SmoothPolyline, transformer anchors, etc.).
+        updateGlobalTransform(entity);
       });
 
       this.commands.execute();
@@ -2071,7 +2079,37 @@ export class API {
     }
   }
 
-  updateNodeVectorNetwork(node: SerializedNode, vectorNetwork: VectorNetwork) { }
+  updateNodeVectorNetwork(node: SerializedNode, vectorNetwork: VectorNetwork) {
+    const vertices = vectorNetwork.vertices ?? [];
+    const segments = vectorNetwork.segments ?? [];
+    const { regions } = vectorNetwork;
+
+    // Re-normalize the geometry so its bounding box top-left sits at the local
+    // origin (0,0), mirroring the deserialize convention (see
+    // utils/deserialize/entity.ts). The node translation absorbs the offset so
+    // the geometry keeps its world position, and Transformer resize math keeps
+    // relying on node.x === geometry left.
+    const { minX, minY, maxX, maxY } = VectorNetwork.getGeometryBounds({
+      vertices,
+      segments,
+    });
+
+    const normalizedVertices = vertices.map((vertex) => ({
+      ...vertex,
+      x: vertex.x - minX,
+      y: vertex.y - minY,
+    }));
+
+    this.updateNode(node, {
+      x: (node.x ?? 0) + minX,
+      y: (node.y ?? 0) + minY,
+      width: maxX - minX,
+      height: maxY - minY,
+      vertices: normalizedVertices,
+      segments,
+      ...(regions !== undefined ? { regions } : {}),
+    } as Partial<SerializedNode>);
+  }
 
   updateNodeOBB(
     node: SerializedNode,
@@ -2188,6 +2226,29 @@ export class API {
         (diff as LineSerializedNode).y1 = newY1 - minY;
         (diff as LineSerializedNode).x2 = newX2 - minX;
         (diff as LineSerializedNode).y2 = newY2 - minY;
+      } else if (node.type === 'vector-network') {
+        const oldNetwork = oldNode as VectorNetworkSerializedNode;
+        const transformed = transformVectorNetworkGeometry(
+          {
+            vertices: (oldNetwork.vertices ?? []).map((v) => ({ ...v })),
+            segments: (oldNetwork.segments ?? []).map((s) => ({
+              ...s,
+              tangentStart: s.tangentStart ? { ...s.tangentStart } : undefined,
+              tangentEnd: s.tangentEnd ? { ...s.tangentEnd } : undefined,
+            })),
+            regions: oldNetwork.regions?.map((region) => ({
+              fillRule: region.fillRule,
+              loops: region.loops.map((loop) => [...loop]),
+            })),
+          },
+          geomDelta,
+        );
+        (diff as VectorNetworkSerializedNode).vertices = transformed.vertices;
+        (diff as VectorNetworkSerializedNode).segments = transformed.segments;
+        if (transformed.regions !== undefined) {
+          (diff as VectorNetworkSerializedNode).regions =
+            transformed.regions as VectorNetworkSerializedNode['regions'];
+        }
       } else if (node.type === 'brush') {
         const shiftedPoints = deserializeBrushPoints(
           (oldNode as BrushSerializedNode)?.points,

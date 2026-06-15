@@ -8,6 +8,7 @@ import {
   DEFAULT_THEME_COLORS,
   BrushType,
   StampMode,
+  VectorNetworkEditMode,
 } from './components';
 import {
   TRANSFORMER_ANCHOR_STROKE_COLOR,
@@ -113,6 +114,7 @@ export interface AppState {
       freehand: boolean;
     }
   >;
+  penbarVectorNetwork: Partial<StrokeAttributes & FillAttributes>;
   penbarBrush: Partial<
     BrushAttributes &
     StrokeAttributes & {
@@ -192,6 +194,8 @@ export interface AppState {
    * Points in editing mode.
    */
   editingPoints: [number, number][];
+  /** VectorNetwork 顶点编辑工具：Move / Bend / Cut */
+  vectorNetworkEditMode: VectorNetworkEditMode;
 
   /**
    * loading state
@@ -295,8 +299,8 @@ export const getDefaultAppState: () => AppState = () => {
       Pen.TEXT,
       Pen.PENCIL,
       Pen.BRUSH,
+      Pen.VECTOR_NETWORK,
       Pen.ERASER,
-      // Pen.VECTOR_NETWORK,
       Pen.COMMENT,
       Pen.LASER_POINTER,
     ],
@@ -427,6 +431,15 @@ export const getDefaultAppState: () => AppState = () => {
       strokeLinecap: 'round',
       strokeLinejoin: 'round',
     },
+    penbarVectorNetwork: {
+      fills: [{ type: 'solid', value: 'none', opacity: 1 }],
+      strokes: [
+        { type: 'solid', value: TRANSFORMER_ANCHOR_STROKE_COLOR, opacity: 1 },
+      ],
+      strokeWidth: 2,
+      strokeLinecap: 'round',
+      strokeLinejoin: 'round',
+    },
     penbarBrush: {
       stamps: [
         {
@@ -516,6 +529,7 @@ export const getDefaultAppState: () => AppState = () => {
     snapLineStroke: 'orange',
     snapLineStrokeWith: 1,
     editingPoints: [],
+    vectorNetworkEditMode: VectorNetworkEditMode.MOVE,
     loading: false,
     loadingMessage: '',
     filter: '',

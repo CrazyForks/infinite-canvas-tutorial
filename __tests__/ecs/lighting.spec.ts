@@ -29,6 +29,7 @@ import {
   system,
   API,
   ComputeZIndex,
+  GlobalTransform,
   type SerializedNode,
 } from '../../packages/ecs/src';
 import { NodeJSAdapter, sleep } from '../utils';
@@ -175,6 +176,7 @@ describe('Lighting', () => {
             Visibility,
             Name,
             ZIndex,
+            GlobalTransform,
           ).write,
       );
 

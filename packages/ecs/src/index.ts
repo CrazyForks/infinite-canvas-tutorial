@@ -27,6 +27,7 @@ export {
   safeAddComponent,
   safeRemoveComponent,
 } from './history';
+export { requestTransformerRefreshForCanvas } from './utils/pick3d-bridge';
 export {
   svgSvgElementToComputedCamera,
   svgElementsToSerializedNodes,

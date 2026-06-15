@@ -27,6 +27,10 @@ export function has3DMeshGizmoSelectedForCanvas(canvas: Entity): boolean {
   return meshGizmoSelectedByCanvas.get(canvas) ?? false;
 }
 
+export function requestTransformerRefreshForCanvas(canvas: Entity): void {
+  dirtyTransformerCanvases.add(canvas);
+}
+
 export function consumeTransformerRefreshForCanvas(canvas: Entity): boolean {
   if (dirtyTransformerCanvases.has(canvas)) {
     dirtyTransformerCanvases.delete(canvas);

@@ -20,6 +20,7 @@ import {
   SerializedNodeAttributes,
   StrokeAttributes,
   TextSerializedNode,
+  VectorNetworkSerializedNode,
 } from '../../types/serialized-node';
 import {
   firstEnabledFillPresentation,
@@ -63,6 +64,11 @@ import {
   resolveIconFontWireStyle,
   strokeWidthFromIconStyle,
 } from '../icon-font';
+import {
+  buildVectorNetworkFillPathD,
+  buildVectorNetworkStrokePathD,
+  resolveVectorNetworkFillRule,
+} from '../vector-network-svg';
 
 const strokeDefaultAttributes = {
   strokes: [{ type: 'solid' as const, value: 'none', opacity: 1 }],
@@ -366,8 +372,10 @@ export async function serializeNodesToSVGElements(
 
     // Use <path> for rough elements.
     const isRough = type?.startsWith('rough-');
+    const isVectorNetwork = type === 'vector-network';
     const element =
       !isRough &&
+      !isVectorNetwork &&
       createSVGElement(type === 'iconfont' ? 'g' : (type as string));
 
     const {
@@ -695,6 +703,7 @@ export async function serializeNodesToSVGElements(
       (hasChildren && type !== 'g') ||
       (innerOrOuterStrokeAlignment && type !== 'polyline') ||
       isRough ||
+      isVectorNetwork ||
       hasFillImage ||
       hasFillGradient ||
       hasFillPattern ||
@@ -798,6 +807,10 @@ export async function serializeNodesToSVGElements(
           nodeForExport as IconFontSerializedNode,
         );
       }
+    }
+
+    if (isVectorNetwork) {
+      exportVectorNetwork(nodeForExport as VectorNetworkSerializedNode, $g);
     }
 
     const matrix = Mat3.from_scale_angle_translation(
@@ -1608,6 +1621,107 @@ export async function exportClipOrMask(
   } else if (clipMode === 'erase') {
     const maskId = await createOrUpdateClipPath(node, $defs, true);
     $g.setAttribute('mask', `url(#${maskId})`);
+  }
+}
+
+export function exportVectorNetwork(
+  node: VectorNetworkSerializedNode,
+  $g: SVGElement,
+): void {
+  migrateLegacyFillWireInPlace(node as unknown as Record<string, unknown>);
+  migrateLegacyStrokeWireInPlace(node as unknown as Record<string, unknown>);
+
+  const { vertices = [], segments = [], regions } = node;
+  const fillPres = firstEnabledFillPresentation(node.fills);
+  const fill = fillPres?.fill;
+  const rawFillOpacity = fillPres?.fillOpacity ?? 1;
+  const fillOpacity =
+    typeof rawFillOpacity === 'number' && Number.isFinite(rawFillOpacity)
+      ? rawFillOpacity
+      : parseFloat(String(rawFillOpacity)) || 1;
+
+  const strokePres = firstEnabledStrokePresentation(node.strokes);
+  const stroke = strokePres?.stroke;
+  const rawStrokeOpacity = strokePres?.strokeOpacity ?? 1;
+  const strokeOpacity =
+    typeof rawStrokeOpacity === 'number' && Number.isFinite(rawStrokeOpacity)
+      ? rawStrokeOpacity
+      : parseFloat(String(rawStrokeOpacity)) || 1;
+
+  const {
+    strokeWidth = 1,
+    strokeLinecap,
+    strokeLinejoin,
+    strokeDasharray,
+    strokeDashoffset,
+    opacity,
+  } = node;
+
+  const fillD = buildVectorNetworkFillPathD(vertices, segments, regions);
+  if (fillD && fill && `${fill}` !== 'none') {
+    const $fill = createSVGElement('path');
+    $fill.setAttribute('d', fillD);
+    $fill.setAttribute('fill', `${fill}`);
+    if (fillOpacity !== 1) {
+      $fill.setAttribute(
+        'fill-opacity',
+        `${toFixedAndRemoveTrailingZeros(Math.max(0, Math.min(1, fillOpacity)))}`,
+      );
+    }
+    $fill.setAttribute('fill-rule', resolveVectorNetworkFillRule(regions));
+    $fill.setAttribute('stroke', 'none');
+    $g.appendChild($fill);
+  }
+
+  const strokeD = buildVectorNetworkStrokePathD(vertices, segments);
+  if (
+    strokeD &&
+    stroke &&
+    `${stroke}` !== 'none' &&
+    strokeWidth > 0
+  ) {
+    const $stroke = createSVGElement('path');
+    $stroke.setAttribute('d', strokeD);
+    $stroke.setAttribute('fill', 'none');
+    $stroke.setAttribute('stroke', `${stroke}`);
+    $stroke.setAttribute(
+      'stroke-width',
+      `${toFixedAndRemoveTrailingZeros(strokeWidth)}`,
+    );
+    if (strokeOpacity !== 1) {
+      $stroke.setAttribute(
+        'stroke-opacity',
+        `${toFixedAndRemoveTrailingZeros(Math.max(0, Math.min(1, strokeOpacity)))}`,
+      );
+    }
+    if (strokeLinecap) {
+      $stroke.setAttribute('stroke-linecap', strokeLinecap);
+    }
+    if (strokeLinejoin) {
+      $stroke.setAttribute('stroke-linejoin', strokeLinejoin);
+    }
+    if (
+      strokeDasharray &&
+      strokeDasharray !== '0,0' &&
+      strokeDasharray !== '0'
+    ) {
+      $stroke.setAttribute('stroke-dasharray', strokeDasharray);
+      if (strokeDashoffset) {
+        $stroke.setAttribute(
+          'stroke-dashoffset',
+          `${toFixedAndRemoveTrailingZeros(strokeDashoffset)}`,
+        );
+      }
+    }
+    $g.appendChild($stroke);
+  }
+
+  if (
+    opacity != null &&
+    Number.isFinite(opacity) &&
+    opacity !== 1
+  ) {
+    $g.setAttribute('opacity', `${toFixedAndRemoveTrailingZeros(opacity)}`);
   }
 }
 
